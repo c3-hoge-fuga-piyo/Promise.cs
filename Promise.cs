@@ -2,186 +2,231 @@
 
 namespace P.I.G
 {
-    public enum PromiseState
-    {
-        Pending,
-        Fulfilled,
-        Rejected,
-    }
+    using E = Exception;
 
-    public class Promise<TResult, TReason> : IThenable<TResult, TReason>
+    public class Promise<T> : IThenable<T>
     {
         #region Constructors
-        public Promise(Action<Action<TResult>, Action<TReason>> executor)
+        Promise()
         {
-            this.State = PromiseState.Pending;
-            executor(this.Resolve, this.Reject);
+            this.State = PromiseStatus.Pending;
+        }
+
+        public Promise(Action<Action<T>, Action<E>> executor)
+            : this()
+        {
+            if (executor == null) throw new ArgumentNullException("executor");
+
+            try
+            {
+                executor(this.Resolve, this.Reject);
+            }
+            catch (Exception reason)
+            {
+                this.Reject(reason);
+            }
+        }
+
+        public Promise(IThenable<T> thenable)
+            : this()
+        {
+            if (thenable == null) throw new ArgumentNullException("thenable");
+
+            thenable.Then(
+                result => { this.Resolve(result); return default(T); },
+                reason => { this.Reject(reason); return default(T); });
         }
         #endregion
 
-        public PromiseState State { get; private set; }
-
-        #region Resolve
-        TResult result;
-        Action<TResult> onFulfilled;
-
-        void Resolve(TResult result)
-        {
-            if (this.State == PromiseState.Rejected) return;
-
-            if (this.State == PromiseState.Pending)
-            {
-                this.State = PromiseState.Fulfilled;
-                this.result = result;
-            }
-
-            this.InvokeResolve();
-        }
-
-        void OnFulfilled(Action<TResult> onFulfilled)
-        {
-            if (this.State == PromiseState.Rejected) return;
-
-            if (this.onFulfilled == null) this.onFulfilled = onFulfilled;
-
-            if (this.State == PromiseState.Fulfilled) this.InvokeResolve();
-        }
-
-        void InvokeResolve()
-        {
-            if (this.onFulfilled != null) this.onFulfilled(this.result);
-        }
-        #endregion
-
-        #region Reject
-        TReason reason;
-        Action<TReason> onRejected;
-
-        void Reject(TReason reason)
-        {
-            if (this.State == PromiseState.Fulfilled) return;
-
-            if (this.State == PromiseState.Pending)
-            {
-                this.State = PromiseState.Rejected;
-                this.reason = reason;
-            }
-
-            this.InvokeReject();
-        }
-
-        void OnRejected(Action<TReason> onRejected)
-        {
-            if (this.State == PromiseState.Fulfilled) return;
-
-            if (this.onRejected == null) this.onRejected = onRejected;
-
-            if (this.State == PromiseState.Rejected) this.InvokeReject();
-        }
-
-        void InvokeReject()
-        {
-            if (this.onRejected != null) this.onRejected(this.reason);
-        }
+        #region Promise States
+        public PromiseStatus State { get; private set; }
         #endregion
 
         #region Then
-        public Promise<UResult, UResason> Then<UResult, UResason>(
-                Func<TResult, IThenable<UResult, UResason>> onFulfilled,
-                Func<TReason, IThenable<UResult, UResason>> onRejected)
+        public Promise<U> Then<U>(
+            Func<T, Promise<U>> onFulfilled,
+            Func<E, Promise<U>> onRejected)
         {
-            return new Promise<UResult, UResason>((resolve, reject)
-                => {
-                    this.OnFulfilled(result
-                        => onFulfilled(result)
-                            .Then(
-                                (UResult x) => { resolve(x); return x; },
-                                (UResason x) => { reject(x); return x; }));
+            if (onFulfilled == null) throw new ArgumentNullException("onFulfilled");
+            if (onRejected == null) throw new ArgumentNullException("onRejected");
 
-                    this.OnRejected(reason
-                        => onRejected(reason)
-                            .Then(
-                                (UResult x) => { resolve(x); return x; },
-                                (UResason x) => { reject(x); return x; }));
-                });
+            var next = new Promise<U>();
+
+            this.Handle(
+                result => onFulfilled(result).Handle(next.Resolve, next.Reject),
+                reason => onRejected(reason).Handle(next.Resolve, next.Reject));
+
+            return next;
         }
 
-        public Promise<UResult, UResason> Then<UResult, UResason>(
-                Func<TResult, IThenable<UResult, UResason>> onFulfilled,
-                Func<TReason, UResason> onRejected)
+        public Promise<U> Then<U>(
+            Func<T, Promise<U>> onFulfilled,
+            Func<E, U> onRejected = null)
         {
-            return new Promise<UResult, UResason>((resolve, reject)
-                => {
-                    this.OnFulfilled(result
-                        => onFulfilled(result)
-                            .Then(
-                                (UResult x) => { resolve(x); return x; },
-                                (UResason x) => { reject(x); return x; }));
+            if (onFulfilled == null) throw new ArgumentNullException("onFulfilled");
 
-                    this.OnRejected(reason
-                        => reject(onRejected(reason)));
-                });
+            var next = new Promise<U>();
+
+            this.Handle(
+                result => onFulfilled(result).Handle(next.Resolve, next.Reject),
+                reason
+                    => {
+                        if (onRejected != null)
+                            next.Resolve(onRejected(reason));
+                        else
+                            next.Reject(reason);
+                    });
+
+            return next;
         }
 
-        public Promise<UResult, UResason> Then<UResult, UResason>(
-                Func<TResult, UResult> onFulfilled,
-                Func<TReason, IThenable<UResult, UResason>> onRejected)
+        public Promise<U> Then<U>(
+            Func<T, U> onFulfilled,
+            Func<E, Promise<U>> onRejected)
         {
-            return new Promise<UResult, UResason>((resolve, reject)
-                => {
-                    this.OnFulfilled(result
-                        => resolve(onFulfilled(result)));
+            if (onFulfilled == null) throw new ArgumentNullException("onFulfilled");
+            if (onRejected == null) throw new ArgumentNullException("onRejected");
 
-                    this.OnRejected(reason
-                        => onRejected(reason)
-                            .Then(
-                                (UResult x) => { resolve(x); return x; },
-                                (UResason x) => { reject(x); return x; }));
-                });
+            var next = new Promise<U>();
+
+            this.Handle(
+                result => next.Resolve(onFulfilled(result)),
+                reason => onRejected(reason).Handle(next.Resolve, next.Reject));
+
+            return next;
         }
 
-        public Promise<UResult, UResason> Then<UResult, UResason>(
-                Func<TResult, UResult> onFulfilled,
-                Func<TReason, UResason> onRejected)
+        public Promise<U> Then<U>(
+            Func<T, U> onFulfilled,
+            Func<E, U> onRejected = null)
         {
-            return new Promise<UResult, UResason>((resolve, reject)
-                => {
-                    this.OnFulfilled(result
-                        => resolve(onFulfilled(result)));
+            if (onFulfilled == null) throw new ArgumentNullException("onFulfilled");
 
-                    this.OnRejected(reason
-                        => reject(onRejected(reason)));
-                });
+            var next = new Promise<U>();
+
+            this.Handle(
+                result => next.Resolve(onFulfilled(result)),
+                reason
+                    => {
+                        if (onRejected != null)
+                            next.Resolve(onRejected(reason));
+                        else
+                            next.Reject(reason);
+                    });
+
+            return next;
         }
         #endregion
 
-        #region IThenable<TResult, TReason>
-        IThenable<UResult, UResason> IThenable<TResult, TReason>.Then<UResult, UResason>(
-                Func<TResult, IThenable<UResult, UResason>> onFulfilled,
-                Func<TReason, IThenable<UResult, UResason>> onRejected)
+        #region Promise Resolution Procedure
+        T result;
+        E reason;
+
+        Action<T> deferredFulfilledHandler;
+        Action<E> deferredRejectedHandler;
+
+        void Handle(Action<T> onFulfilled = null, Action<E> onRejected = null)
         {
-            return this.Then(onFulfilled, onRejected);
+            var hasFulfilledHandler = onFulfilled != null;
+            var hasRejectedHandler = onRejected != null;
+
+            switch (this.State)
+            {
+                case PromiseStatus.Pending:
+                {
+                    if (hasFulfilledHandler) this.deferredFulfilledHandler += onFulfilled;
+                    if (hasRejectedHandler) this.deferredRejectedHandler += onRejected;
+                    break;
+                }
+                case PromiseStatus.Fulfilled:
+                {
+                    if (hasFulfilledHandler)
+                    {
+                        try
+                        {
+                            onFulfilled(this.result);
+                        }
+                        catch (Exception reason)
+                        {
+                            this.Reject(reason);
+                        }
+                    }
+                    break;
+                }
+                case PromiseStatus.Rejected:
+                {
+                    if (hasRejectedHandler) onRejected(this.reason);
+                    break;
+                }
+            }
         }
 
-        IThenable<UResult, UResason> IThenable<TResult, TReason>.Then<UResult, UResason>(
-                Func<TResult, IThenable<UResult, UResason>> onFulfilled,
-                Func<TReason, UResason> onRejected)
+        void InvokeDeferredHandler()
         {
-            return this.Then(onFulfilled, onRejected);
+            this.Handle(
+                this.deferredFulfilledHandler,
+                this.deferredRejectedHandler);
+
+            this.deferredFulfilledHandler = null;
+            this.deferredRejectedHandler = null;
         }
 
-        IThenable<UResult, UResason> IThenable<TResult, TReason>.Then<UResult, UResason>(
-                Func<TResult, UResult> onFulfilled,
-                Func<TReason, IThenable<UResult, UResason>> onRejected)
+        void Resolve(T result)
         {
-            return this.Then(onFulfilled, onRejected);
+            if (this.State == PromiseStatus.Pending)
+            {
+                this.State = PromiseStatus.Fulfilled;
+                this.result = result;
+            }
+            this.InvokeDeferredHandler();
         }
 
-        IThenable<UResult, UResason> IThenable<TResult, TReason>.Then<UResult, UResason>(
-                Func<TResult, UResult> onFulfilled,
-                Func<TReason, UResason> onRejected)
+        void Reject(Exception reason)
         {
-            return this.Then(onFulfilled, onRejected);
+            if (this.State == PromiseStatus.Pending)
+            {
+                this.State = PromiseStatus.Rejected;
+                this.reason = reason;;
+            }
+            this.InvokeDeferredHandler();
+        }
+        #endregion
+
+        #region IThenable<T>
+        IThenable<U> IThenable<T>.Then<U>(
+            Func<T, IThenable<U>> onFulfilled,
+            Func<E, IThenable<U>> onRejected)
+        {
+            return this.Then(
+                result => new Promise<U>(onFulfilled(result)),
+                reason => new Promise<U>(onRejected(reason)));
+        }
+
+        IThenable<U> IThenable<T>.Then<U>(
+            Func<T, IThenable<U>> onFulfilled,
+            Func<E, U> onRejected)
+        {
+            return this.Then(
+                result => new Promise<U>(onFulfilled(result)),
+                onRejected);
+        }
+
+        IThenable<U> IThenable<T>.Then<U>(
+            Func<T, U> onFulfilled,
+            Func<E, IThenable<U>> onRejected)
+        {
+            return this.Then(
+                onFulfilled,
+                reason => new Promise<U>(onRejected(reason)));
+        }
+
+        IThenable<U> IThenable<T>.Then<U>(
+            Func<T, U> onFulfilled,
+            Func<E, U> onRejected)
+        {
+            return this.Then(
+                onFulfilled,
+                onRejected);
         }
         #endregion
     }

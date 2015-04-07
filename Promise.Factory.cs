@@ -6,59 +6,89 @@ namespace P.I.G
 {
     public static partial class Promise
     {
-        public static Promise<TResult, TReason> Resolve<TResult, TReason>(TResult result)
+        #region Resolve
+        public static Promise<T> Resolve<T>(T result)
         {
-            return new Promise<TResult, TReason>((resolve, _) => resolve(result));
+            return new Promise<T>((resolve, _) => resolve(result));
         }
 
-        public static Promise<TResult, TReason> Reject<TResult, TReason>(TReason reason)
+        public static Promise<T> Resolve<T>(Promise<T> promise)
         {
-            return new Promise<TResult, TReason>((_, reject) => reject(reason));
+            if (promise == null) throw new ArgumentNullException("promises");
+
+            return promise;
         }
 
-        public static Promise<IEnumerable<TResult>, TReason> All<TResult, TReason>(IEnumerable<IThenable<TResult, TReason>> thenables)
+        public static Promise<T> Resolve<T>(IThenable<T> thenable)
         {
-            return new Promise<IEnumerable<TResult>, TReason>((resolve, reject)
+            if (thenable == null) throw new ArgumentNullException("thenable");
+
+            return new Promise<T>(thenable);
+        }
+        #endregion
+
+        #region Reject
+        public static Promise<T> Reject<T>(Exception reason)
+        {
+            if (reason == null) throw new ArgumentNullException("reason");
+
+            return new Promise<T>((_, reject) => reject(reason));
+        }
+        #endregion
+
+        #region All
+        public static Promise<IEnumerable<T>> All<T>(IEnumerable<Promise<T>> promises)
+        {
+            if (promises == null) throw new ArgumentNullException("promises");
+
+            return new Promise<IEnumerable<T>>((resolve, reject)
                 => {
-                    var total = thenables.Count();
-                    var count = 0;
-                    var results = new List<TResult>();
+                    var total = promises.Count();
+                    var current = 0;
+                    var done = 0;
+                    var results = new T[total];
 
-                    foreach (var thenable in thenables)
+                    foreach (var p in promises)
                     {
-                        thenable.Then(
-                            (TResult result)
-                                => {
-                                    results.Add(result);
+                        var i = current++;
 
-                                    if (++count == total) resolve(results);
+                        p.Then<T>(
+                            result => {
+                                results[i] = result;
 
-                                    return result;
-                                },
-                            (TReason reason) => { reject(reason); return reason; });
+                                if (++done == total) resolve(results);
+
+                                return default(T);
+                            },
+                            reason => { reject(reason); return default(T); });
                     }
                 });
         }
 
-        public static Promise<IEnumerable<TResult>, TReason> All<TResult, TReason>(params IThenable<TResult, TReason>[] thenables)
+        public static Promise<IEnumerable<T>> All<T>(params Promise<T>[] promises)
         {
-            return All(thenables.AsEnumerable());
+            return All(promises.AsEnumerable());
         }
+        #endregion
 
-        public static Promise<TResult, TReason> Race<TResult, TReason>(IEnumerable<IThenable<TResult, TReason>> thenables)
+        #region Race
+        public static Promise<T> Race<T>(IEnumerable<Promise<T>> promises)
         {
-            return new Promise<TResult, TReason>((resolve, reject)
+            if (promises == null) throw new ArgumentNullException("promises");
+
+            return new Promise<T>((resolve, reject)
                 => {
-                    foreach (var thenable in thenables)
-                        thenable.Then(
-                            (TResult result) => { resolve(result); return result; },
-                            (TReason reason) => { reject(reason); return reason; });
+                    foreach (var p in promises)
+                        p.Then<T>(
+                            result => { resolve(result); return default(T); },
+                            reason => { reject(reason); return default(T); });
                 });
         }
 
-        public static Promise<TResult, TReason> Race<TResult, TReason>(params IThenable<TResult, TReason>[] thenables)
+        public static Promise<T> Race<T>(params Promise<T>[] promises)
         {
-            return Race(thenables.AsEnumerable());
+            return Race(promises.AsEnumerable());
         }
+        #endregion
     }
 }

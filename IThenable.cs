@@ -2,22 +2,24 @@
 
 namespace P.I.G
 {
-    public interface IThenable<TResult, TReason>
+    using E = Exception;
+
+    public interface IThenable<T>
     {
-        IThenable<UResult, UResason> Then<UResult, UResason>(
-                Func<TResult, IThenable<UResult, UResason>> onFulfilled,
-                Func<TReason, IThenable<UResult, UResason>> onRejected);
+        IThenable<U> Then<U>(
+            Func<T, IThenable<U>> onFulfilled,
+            Func<E, IThenable<U>> onRejected);
 
-        IThenable<UResult, UResason> Then<UResult, UResason>(
-                Func<TResult, IThenable<UResult, UResason>> onFulfilled,
-                Func<TReason, UResason> onRejected);
+        IThenable<U> Then<U>(
+            Func<T, IThenable<U>> onFulfilled,
+            Func<E, U> onRejected = null);
 
-        IThenable<UResult, UResason> Then<UResult, UResason>(
-                Func<TResult, UResult> onFulfilled,
-                Func<TReason, IThenable<UResult, UResason>> onRejected);
+        IThenable<U> Then<U>(
+            Func<T, U> onFulfilled,
+            Func<E, IThenable<U>> onRejected);
 
-        IThenable<UResult, UResason> Then<UResult, UResason>(
-                Func<TResult, UResult> onFulfilled,
-                Func<TReason, UResason> onRejected);
+        IThenable<U> Then<U>(
+            Func<T, U> onFulfilled,
+            Func<E, U> onRejected = null);
     }
 }
