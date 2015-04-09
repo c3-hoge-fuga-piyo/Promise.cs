@@ -23,7 +23,7 @@ namespace P.I.G
             }
             catch (Exception reason)
             {
-                this.Reject(reason);
+                this.Abort(reason);
             }
         }
 
@@ -148,7 +148,7 @@ namespace P.I.G
                         }
                         catch (Exception reason)
                         {
-                            this.Reject(reason);
+                            this.Abort(reason);
                         }
                     }
                     break;
@@ -188,6 +188,13 @@ namespace P.I.G
                 this.State = PromiseStatus.Rejected;
                 this.reason = reason;;
             }
+            this.InvokeDeferredHandler();
+        }
+
+        void Abort(Exception reason)
+        {
+            this.State = PromiseStatus.Rejected;
+            this.reason = reason;
             this.InvokeDeferredHandler();
         }
         #endregion
